@@ -3,8 +3,13 @@ from typing import Dict, List, Any, Optional
 
 
 def parse_basic_info(wb: openpyxl.Workbook) -> Dict[str, Any]:
-    """解析02项目基础信息表"""
-    ws = wb["02 项目基础信息（输入）"]
+    """解析02项目基础信息表（如果不存在则返回空字典）"""
+    try:
+        ws = wb["02 项目基础信息（输入）"]
+    except KeyError:
+        # 如果02表不存在，返回空字典，后续从其他表获取信息
+        return {}
+    
     info = {}
     
     # 读取建筑面积信息（根据实际格式调整）
@@ -13,6 +18,41 @@ def parse_basic_info(wb: openpyxl.Workbook) -> Dict[str, Any]:
             info["总建筑面积"] = row[1] if len(row) > 1 else None
         if row[0] and "可售面积" in str(row[0]):
             info["可售面积"] = row[1] if len(row) > 1 else None
+    
+    return info
+
+
+def get_project_info_from_sheet(wb: openpyxl.Workbook, sheet_name: str) -> Dict[str, Any]:
+    """从指定工作表获取项目基本信息（建筑面积、可售面积等）"""
+    info = {}
+    try:
+        ws = wb[sheet_name]
+    except KeyError:
+        return info
+    
+    for row in ws.iter_rows(min_row=1, max_row=50, values_only=True):
+        if len(row) == 0:
+            continue
+            
+        # 查找建筑面积相关信息
+        row_str = str(row[0]) if row[0] else ""
+        if "建筑面积" in row_str or "建面" in row_str:
+            for i in range(min(len(row), 10)):
+                cell_val = row[i]
+                if cell_val and isinstance(cell_val, (int, float)) and cell_val > 0:
+                    if "总建筑面积" not in info or "总面积" in row_str:
+                        info["总建筑面积"] = cell_val
+                    elif "可售" in row_str:
+                        info["可售面积"] = cell_val
+        
+        # 查找项目名称
+        if "项目名称" in row_str or "项目" in row_str:
+            for i in range(min(len(row), 10)):
+                cell_val = row[i]
+                if cell_val and isinstance(cell_val, str) and cell_val.strip():
+                    if "名称" not in info:
+                        info["名称"] = cell_val.strip()
+                        break
     
     return info
 
@@ -57,8 +97,35 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
         project_name = extracted_name
 
     result["项目信息"]["名称"] = project_name
-    result["项目信息"]["总建筑面积"] = row4[5] if len(row4) > 5 and row4[5] else 0
-    result["项目信息"]["可售面积"] = row4[9] if len(row4) > 9 and row4[9] else 0
+    
+    # 从04表获取建筑面积信息
+    total_area = row4[5] if len(row4) > 5 and row4[5] else 0
+    saleable_area = row4[9] if len(row4) > 9 and row4[9] else 0
+    
+    # 如果04表没有数据，尝试从05表获取
+    if total_area == 0 or saleable_area == 0:
+        try:
+            info_from_05 = get_project_info_from_sheet(wb, "05 成本测算明细")
+            if total_area == 0 and info_from_05.get("总建筑面积"):
+                total_area = info_from_05["总建筑面积"]
+            if saleable_area == 0 and info_from_05.get("可售面积"):
+                saleable_area = info_from_05["可售面积"]
+        except:
+            pass
+    
+    # 如果还是没有，尝试从02表获取
+    if total_area == 0 or saleable_area == 0:
+        try:
+            info_from_02 = get_project_info_from_sheet(wb, "02 项目基础信息（输入）")
+            if total_area == 0 and info_from_02.get("总建筑面积"):
+                total_area = info_from_02["总建筑面积"]
+            if saleable_area == 0 and info_from_02.get("可售面积"):
+                saleable_area = info_from_02["可售面积"]
+        except:
+            pass
+    
+    result["项目信息"]["总建筑面积"] = total_area
+    result["项目信息"]["可售面积"] = saleable_area
     
     # 读取数据行
     current_subject = None
