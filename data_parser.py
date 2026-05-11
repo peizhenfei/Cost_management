@@ -164,7 +164,7 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
         project_name = extracted_name
 
     result["项目信息"]["名称"] = project_name
-    
+
     # 确保面积是数字类型
     total_area = safe_float(total_area)
     saleable_area = safe_float(saleable_area)
