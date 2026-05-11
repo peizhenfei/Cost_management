@@ -2,11 +2,22 @@ import openpyxl
 from typing import Dict, List, Any, Optional
 
 
+def safe_float(value):
+    """安全地将值转换为float，处理非数字内容"""
+    if value is None:
+        return 0
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 0
+
+
 def parse_basic_info(wb: openpyxl.Workbook) -> Dict[str, Any]:
     """解析02项目基础信息表（如果不存在则返回空字典）"""
-    try:
-        ws = wb["02 项目基础信息（输入）"]
-    except KeyError:
+    # 支持多种可能的工作表名称
+    possible_names = ["02 项目基础信息（输入）", "项目基础信息", "02项目基础信息", "基础信息"]
+    ws = find_sheet(wb, possible_names)
+    if ws is None:
         # 如果02表不存在，返回空字典，后续从其他表获取信息
         return {}
     
@@ -57,9 +68,26 @@ def get_project_info_from_sheet(wb: openpyxl.Workbook, sheet_name: str) -> Dict[
     return info
 
 
+def find_sheet(wb, possible_names):
+    """在工作簿中查找可能的工作表"""
+    for name in possible_names:
+        if name in wb.sheetnames:
+            return wb[name]
+    # 如果都找不到，尝试模糊匹配
+    for sheet_name in wb.sheetnames:
+        for name in possible_names:
+            if name in sheet_name or sheet_name in name:
+                return wb[sheet_name]
+    return None
+
+
 def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[str, Any]:
-    """解析04目标成本控制表"""
-    ws = wb["04 目标成本控制表"]
+    """解析04目标成本控制表（支持多种格式）"""
+    # 支持多种可能的工作表名称
+    possible_names = ["04 目标成本控制表", "目标成本控制表", "04目标成本控制表", "成本控制表"]
+    ws = find_sheet(wb, possible_names)
+    if ws is None:
+        raise ValueError("未找到目标成本控制表，请确保Excel文件包含名为'04 目标成本控制表'或类似名称的工作表")
 
     result = {
         "项目信息": {},
@@ -68,15 +96,49 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
         "汇总行": {},
     }
 
-    # 读取项目信息（第4行）
-    row4 = list(ws.iter_rows(min_row=4, max_row=4, values_only=True))[0]
-    # 项目名称在C列(索引2)，但需要处理合并单元格的情况
-    # 如果C列为空，尝试从B列获取
+    # 尝试从第3行获取项目信息（新格式）
+    row3 = list(ws.iter_rows(min_row=3, max_row=3, values_only=True))[0]
     project_name = ""
-    if len(row4) > 2 and row4[2]:
-        project_name = str(row4[2]).strip()
-    elif len(row4) > 1 and row4[1]:
-        project_name = str(row4[1]).strip()
+    total_area = 0
+    saleable_area = 0
+    
+    # 检查是否是新格式（第3行包含"项目名称："）
+    if len(row3) > 0 and row3[0] and "项目名称" in str(row3[0]):
+        # 新格式：第3行包含项目名称和建筑面积
+        if len(row3) > 2 and row3[2]:
+            project_name = str(row3[2]).strip()
+            # 移除特殊字符
+            project_name = project_name.replace('_x000d_\n', '').replace('\n', '')
+        
+        # 查找建筑面积信息
+        for i, val in enumerate(row3):
+            if val:
+                if isinstance(val, (int, float)) and val > 0:
+                    # 检查前一个单元格是否是标签
+                    if i > 0 and row3[i-1]:
+                        label = str(row3[i-1])
+                        if "建筑面积" in label:
+                            total_area = val
+                        elif "可租售面积" in label or "可售面积" in label:
+                            saleable_area = val
+    
+    # 如果第3行不是新格式，尝试从第4行获取（旧格式）
+    if not project_name:
+        row4 = list(ws.iter_rows(min_row=4, max_row=4, values_only=True))[0]
+        # 项目名称在C列(索引2)，但需要处理合并单元格的情况
+        if len(row4) > 2 and row4[2]:
+            project_name = str(row4[2]).strip()
+            # 移除特殊字符
+            project_name = project_name.replace('_x000d_\n', '').replace('\n', '')
+        elif len(row4) > 1 and row4[1]:
+            project_name = str(row4[1]).strip()
+            project_name = project_name.replace('_x000d_\n', '').replace('\n', '')
+        
+        # 从第4行获取建筑面积
+        if total_area == 0:
+            total_area = row4[5] if len(row4) > 5 and row4[5] else 0
+        if saleable_area == 0:
+            saleable_area = row4[9] if len(row4) > 9 and row4[9] else 0
 
     # 如果还是空，尝试从02表获取
     if not project_name:
@@ -85,6 +147,7 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
             for row in ws02.iter_rows(min_row=1, max_row=20, values_only=True):
                 if row[0] and "项目名称" in str(row[0]):
                     project_name = str(row[3]) if len(row) > 3 and row[3] else ""
+                    project_name = project_name.replace('_x000d_\n', '').replace('\n', '')
                     break
         except:
             pass
@@ -95,21 +158,27 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
     is_template_name = any(template in project_name for template in template_names)
     if is_template_name and extracted_name:
         project_name = extracted_name
+    
+    # 如果还是没有项目名称，使用文件名提取的名称
+    if not project_name and extracted_name:
+        project_name = extracted_name
 
     result["项目信息"]["名称"] = project_name
     
-    # 从04表获取建筑面积信息
-    total_area = row4[5] if len(row4) > 5 and row4[5] else 0
-    saleable_area = row4[9] if len(row4) > 9 and row4[9] else 0
+    # 确保面积是数字类型
+    total_area = safe_float(total_area)
+    saleable_area = safe_float(saleable_area)
     
     # 如果04表没有数据，尝试从05表获取
     if total_area == 0 or saleable_area == 0:
         try:
             info_from_05 = get_project_info_from_sheet(wb, "05 成本测算明细")
             if total_area == 0 and info_from_05.get("总建筑面积"):
-                total_area = info_from_05["总建筑面积"]
+                total_area = safe_float(info_from_05["总建筑面积"])
             if saleable_area == 0 and info_from_05.get("可售面积"):
-                saleable_area = info_from_05["可售面积"]
+                saleable_area = safe_float(info_from_05["可售面积"])
+            if saleable_area == 0 and info_from_05.get("可租售面积"):
+                saleable_area = safe_float(info_from_05["可租售面积"])
         except:
             pass
     
@@ -118,9 +187,11 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
         try:
             info_from_02 = get_project_info_from_sheet(wb, "02 项目基础信息（输入）")
             if total_area == 0 and info_from_02.get("总建筑面积"):
-                total_area = info_from_02["总建筑面积"]
+                total_area = safe_float(info_from_02["总建筑面积"])
             if saleable_area == 0 and info_from_02.get("可售面积"):
-                saleable_area = info_from_02["可售面积"]
+                saleable_area = safe_float(info_from_02["可售面积"])
+            if saleable_area == 0 and info_from_02.get("可租售面积"):
+                saleable_area = safe_float(info_from_02["可租售面积"])
         except:
             pass
     
@@ -270,7 +341,11 @@ def parse_cost_detail(wb: openpyxl.Workbook) -> Dict[str, Any]:
     - I列(8): 工程量值
     - S列(18): 属性（固定/弹性/暂定）
     """
-    ws = wb["05 成本测算明细"]
+    # 支持多种可能的工作表名称
+    possible_names = ["05 成本测算明细", "成本测算明细", "05成本测算明细", "测算明细"]
+    ws = find_sheet(wb, possible_names)
+    if ws is None:
+        raise ValueError("未找到成本测算明细表，请确保Excel文件包含名为'05 成本测算明细'或类似名称的工作表")
     
     result = {
         "科目属性": {},

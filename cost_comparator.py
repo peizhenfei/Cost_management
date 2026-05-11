@@ -2,6 +2,16 @@ from typing import Dict, List, Tuple, Any
 from data_parser import get_project_types
 
 
+def safe_float(value):
+    """安全地将值转换为float，处理非数字内容"""
+    if value is None:
+        return 0
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 0
+
+
 def find_matching_type_key(type_name: str, detail_keys: List[str], project_data: Dict = None) -> str:
     """在detail_keys中查找匹配type_name的key，支持模糊匹配"""
     if type_name in detail_keys:
@@ -276,12 +286,12 @@ def compare_fixed_costs(project_a: Dict, project_b: Dict, type_matches: List[Tup
                 continue
 
             # 获取含量和单价
-            a_content = float(a_data.get("含量", 0) or 0)
-            b_content = float(b_data.get("含量", 0) or 0)
-            a_price = float(a_data.get("单价", 0) or 0)
-            b_price = float(b_data.get("单价", 0) or 0)
-            a_danfang = float(a_data.get("单方", 0) or 0)
-            b_danfang = float(b_data.get("单方", 0) or 0)
+            a_content = safe_float(a_data.get("含量", 0))
+            b_content = safe_float(b_data.get("含量", 0))
+            a_price = safe_float(a_data.get("单价", 0))
+            b_price = safe_float(b_data.get("单价", 0))
+            a_danfang = safe_float(a_data.get("单方", 0))
+            b_danfang = safe_float(b_data.get("单方", 0))
 
             # 如果Excel中的单方值有效，直接使用它；否则尝试用含量×单价计算
             a_unit_price = a_danfang if a_danfang > 0 else (a_content * a_price if a_content > 0 and a_price > 0 else 0)
@@ -331,12 +341,12 @@ def compare_fixed_costs(project_a: Dict, project_b: Dict, type_matches: List[Tup
                         continue
 
                     # 获取含量和单价
-                    a_sub_content = float(a_sub.get("含量", 0) or 0)
-                    b_sub_content = float(b_sub.get("含量", 0) or 0)
-                    a_sub_price = float(a_sub.get("单价", 0) or 0)
-                    b_sub_price = float(b_sub.get("单价", 0) or 0)
-                    a_sub_danfang = float(a_sub.get("单方", 0) or 0)
-                    b_sub_danfang = float(b_sub.get("单方", 0) or 0)
+                    a_sub_content = safe_float(a_sub.get("含量", 0))
+                    b_sub_content = safe_float(a_sub.get("含量", 0))
+                    a_sub_price = safe_float(a_sub.get("单价", 0))
+                    b_sub_price = safe_float(b_sub.get("单价", 0))
+                    a_sub_danfang = safe_float(a_sub.get("单方", 0))
+                    b_sub_danfang = safe_float(b_sub.get("单方", 0))
 
                     # 根据不同科目类型处理
                     # 钢筋工程(03.04.01.01)和混凝土工程(03.04.01.03)：使用合并单价
@@ -355,14 +365,16 @@ def compare_fixed_costs(project_a: Dict, project_b: Dict, type_matches: List[Tup
                         material_sub_code = sub_code + ".01"  # 03.04.01.01.01 或 03.04.01.03.01
                         a_material = a_detail.get(material_sub_code, {})
                         b_material = b_detail.get(material_sub_code, {})
-                        a_sub_content = float(a_material.get("含量", 0) or 0)
-                        b_sub_content = float(b_material.get("含量", 0) or 0)
+                        
+                        # 安全地转换含量为float，处理可能的非数字内容
+                        a_sub_content = safe_float(a_material.get("含量", 0))
+                        b_sub_content = safe_float(b_material.get("含量", 0))
                         
                         # 如果四级子项没有含量，使用三级科目本身的含量
                         if a_sub_content == 0:
-                            a_sub_content = float(a_sub.get("含量", 0) or 0)
+                            a_sub_content = safe_float(a_sub.get("含量", 0))
                         if b_sub_content == 0:
-                            b_sub_content = float(b_sub.get("含量", 0) or 0)
+                            b_sub_content = safe_float(b_sub.get("含量", 0))
                         
                         # 计算合并单价 = 单方 / 含量
                         a_sub_price = a_sub_unit / a_sub_content if a_sub_content > 0 else 0
@@ -459,8 +471,8 @@ def compare_elastic_costs(project_a: Dict, project_b: Dict, type_matches: List[T
                 continue
             
             # 获取基础数据
-            a_danfang = float(a_data.get("单方", 0) or 0)
-            b_danfang = float(b_data.get("单方", 0) or 0)
+            a_danfang = safe_float(a_data.get("单方", 0))
+            b_danfang = safe_float(b_data.get("单方", 0))
             
             # 获取科目配置
             content_unit = config.get("content_unit")
