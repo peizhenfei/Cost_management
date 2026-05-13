@@ -185,7 +185,7 @@ def parse_cost_control(wb: openpyxl.Workbook, extracted_name: str = "") -> Dict[
     result["项目信息"]["可售面积"] = saleable_area
     
     current_subject = None
-    for row in ws.iter_rows(min_row=8, max_row=ws.max_row, values_only=True):
+    for row in ws.iter_rows(min_row=7, max_row=ws.max_row, values_only=True):
         a_val = row[0] if row[0] else None
         b_val = row[1] if row[1] else None
         
