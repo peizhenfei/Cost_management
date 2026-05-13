@@ -687,6 +687,7 @@ def gen_fixed_sheet(wb: openpyxl.Workbook, data: Dict[str, Any], styles: Dict):
         ws.row_dimensions[row_idx].height = 25
         row_idx += 1
 
+        # 初始化累加变量
         total_a_unit = 0
         total_b_unit = 0
         total_diff = 0
@@ -710,10 +711,11 @@ def gen_fixed_sheet(wb: openpyxl.Workbook, data: Dict[str, Any], styles: Dict):
                 font = styles["normal_font"]
                 indent = ""
 
+            # 累加所有非四级子科目的数据（建筑工程的四级子项不单独累加，避免重复计算）
             if not is_construction_child:
                 total_a_unit += item["项目A单方"]
                 total_b_unit += item["项目B单方"]
-                total_diff += item["单方差异"]
+                total_diff += (item["项目A单方"] - item["项目B单方"])
                 total_price_impact += item["价格差异影响"]
                 total_content_impact += item["含量差异影响"]
 

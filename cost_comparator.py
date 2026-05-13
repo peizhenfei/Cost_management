@@ -161,10 +161,24 @@ def compare_summary(project_a: Dict, project_b: Dict, type_matches: List[Tuple[s
     result["业态对比_单体工程"] = []
     result["业态对比_户内装饰工程"] = []
     
+    # 辅助函数：查找业态数据，处理名称不一致的情况
+    def find_type_data(project, type_name):
+        if not type_name:
+            return {}
+        # 直接查找
+        if type_name in project["成本控制"]["业态数据"]:
+            return project["成本控制"]["业态数据"][type_name]
+        # 如果找不到，尝试查找包含"叠墅"或"叠加"的业态
+        if "叠墅" in type_name or "叠加" in type_name:
+            for key in project["成本控制"]["业态数据"].keys():
+                if "叠墅" in key or "叠加" in key:
+                    return project["成本控制"]["业态数据"][key]
+        return {}
+    
     for type_a, type_b in type_matches:
-        # 获取业态数据（处理一方为空的情况）
-        a_types_data = project_a["成本控制"]["业态数据"].get(type_a, {}) if type_a else {}
-        b_types_data = project_b["成本控制"]["业态数据"].get(type_b, {}) if type_b else {}
+        # 获取业态数据（处理一方为空的情况，以及名称不一致的情况）
+        a_types_data = find_type_data(project_a, type_a)
+        b_types_data = find_type_data(project_b, type_b)
         
         # 获取单体工程数据
         a_mono = a_types_data.get("单体工程", {})
@@ -267,10 +281,6 @@ def compare_fixed_costs(project_a: Dict, project_b: Dict, type_matches: List[Tup
         if not type_a and not type_b:
             continue
         
-        # 如果项目A或项目B没有有效的业态类型（空值或None），跳过对比
-        if not type_a or not type_b:
-            continue
-        
         a_keys = list(project_a["测算明细"]["业态明细"].keys())
         b_keys = list(project_b["测算明细"]["业态明细"].keys())
 
@@ -288,7 +298,34 @@ def compare_fixed_costs(project_a: Dict, project_b: Dict, type_matches: List[Tup
             "业态A": type_a or "",
             "业态B": type_b or "",
             "科目明细": [],
+            # 从成本控制数据获取固定成本汇总值（用于汇总行，与成本对比总表保持一致）
+            "汇总_项目A单方": 0,
+            "汇总_项目B单方": 0,
+            "汇总_差异": 0,
         }
+        
+        # 从成本控制数据获取该业态的固定成本（单体工程）汇总值
+        # 需要处理业态名称可能不一致的情况（如"叠加别墅"和"叠墅"）
+        def find_type_data(project, type_name):
+            # 处理 None 的情况
+            if not type_name:
+                return {}
+            # 直接查找
+            if type_name in project["成本控制"]["业态数据"]:
+                return project["成本控制"]["业态数据"][type_name].get("单体工程", {})
+            # 如果找不到，尝试查找包含"叠墅"或"叠加"的业态
+            if "叠墅" in type_name or "叠加" in type_name:
+                for key in project["成本控制"]["业态数据"].keys():
+                    if "叠墅" in key or "叠加" in key:
+                        return project["成本控制"]["业态数据"][key].get("单体工程", {})
+            return {}
+        
+        a_type_data = find_type_data(project_a, type_a)
+        b_type_data = find_type_data(project_b, type_b)
+        
+        type_analysis["汇总_项目A单方"] = safe_float(a_type_data.get("相对建面单方", 0))
+        type_analysis["汇总_项目B单方"] = safe_float(b_type_data.get("相对建面单方", 0))
+        type_analysis["汇总_差异"] = type_analysis["汇总_项目A单方"] - type_analysis["汇总_项目B单方"]
         
         # 预检查：如果项目A没有该业态（type_a为空），检查项目B是否有任何有效数据
         # 如果没有，跳过该对比（与汇总表逻辑一致）
@@ -321,9 +358,13 @@ def compare_fixed_costs(project_a: Dict, project_b: Dict, type_matches: List[Tup
             price_impact = (a_price - b_price) * avg_content
             content_impact = (a_content - b_content) * avg_price
 
-            # 过滤掉对比数据全为0的行
+            # 过滤掉对比数据全为0的行（但如果任一方有数据，即使另一方为0，也要保留）
             if a_unit_price == 0 and b_unit_price == 0 and a_content == 0 and b_content == 0 and a_price == 0 and b_price == 0:
-                continue
+                # 检查是否有任何一方有原始数据（即使计算后为0）
+                has_a_data = bool(a_data) and any(safe_float(v) > 0 for v in a_data.values() if isinstance(v, (int, float, str)))
+                has_b_data = bool(b_data) and any(safe_float(v) > 0 for v in b_data.values() if isinstance(v, (int, float, str)))
+                if not has_a_data and not has_b_data:
+                    continue
 
             type_analysis["科目明细"].append({
                 "科目编码": subject_code,
@@ -359,7 +400,7 @@ def compare_fixed_costs(project_a: Dict, project_b: Dict, type_matches: List[Tup
 
                     # 获取含量和单价
                     a_sub_content = safe_float(a_sub.get("含量", 0))
-                    b_sub_content = safe_float(a_sub.get("含量", 0))
+                    b_sub_content = safe_float(b_sub.get("含量", 0))
                     a_sub_price = safe_float(a_sub.get("单价", 0))
                     b_sub_price = safe_float(b_sub.get("单价", 0))
                     a_sub_danfang = safe_float(a_sub.get("单方", 0))
