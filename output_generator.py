@@ -294,10 +294,16 @@ def gen_summary_sheet(wb: openpyxl.Workbook, data: Dict[str, Any], styles: Dict)
     row_idx = 6
 
     independent_subjects = ["前期工程", "桩基础工程", "岩土工程", "配套工程", "室外工程", "基础设施工程", "卖场包装费用"]
-
+    
+    subject_rows = {}
+    subject_end_rows = {}
+    
     for item in data["科目对比"]:
         subject = item["科目"]
-
+        start_row = row_idx
+        
+        subject_rows[subject] = start_row
+        
         if subject in ["合计-毛坯", "总建安成本"]:
             fill = styles["summary_fill"]
             font = styles["bold_font"]
@@ -310,17 +316,15 @@ def gen_summary_sheet(wb: openpyxl.Workbook, data: Dict[str, Any], styles: Dict)
         else:
             fill = styles["odd_fill"]
             font = styles["normal_font"]
-
+        
         a_total_unit = item["项目A总价"] * 10000 / data["项目A总面积"] if data["项目A总面积"] > 0 else 0
         b_total_unit = item["项目B总价"] * 10000 / data["项目B总面积"] if data["项目B总面积"] > 0 else 0
 
-        # 第一列是文本
         set_cell_value(ws.cell(row=row_idx, column=1), subject,
                        font=font, fill=fill,
                        alignment=styles["left_align"],
                        border=styles["thin_border"])
 
-        # 数值列直接写入数值
         set_cell_value(ws.cell(row=row_idx, column=2), item["项目A总价"],
                        font=styles["normal_font"], fill=fill,
                        alignment=styles["center_align"],
@@ -616,7 +620,30 @@ def gen_summary_sheet(wb: openpyxl.Workbook, data: Dict[str, Any], styles: Dict)
 
                 ws.row_dimensions[row_idx].height = 20
                 row_idx += 1
-
+    
+    # 回填汇总行公式
+    if "合计-毛坯" in subject_rows:
+        maopi_row = subject_rows["合计-毛坯"]
+        qianqi_row = subject_rows.get("前期工程", maopi_row)
+        zhuangji_row = subject_rows.get("桩基础工程", maopi_row)
+        yantu_row = subject_rows.get("岩土工程", maopi_row)
+        danti_row = subject_rows.get("单体工程", maopi_row)
+        peitao_row = subject_rows.get("配套工程", maopi_row)
+        shiwei_row = subject_rows.get("室外工程", maopi_row)
+        
+        ws.cell(row=maopi_row, column=2).value = f"=SUM(B{qianqi_row},B{zhuangji_row},B{yantu_row},B{danti_row},B{peitao_row},B{shiwei_row})"
+        ws.cell(row=maopi_row, column=7).value = f"=SUM(G{qianqi_row},G{zhuangji_row},G{yantu_row},G{danti_row},G{peitao_row},G{shiwei_row})"
+    
+    if "总建安成本" in subject_rows:
+        jianan_row = subject_rows["总建安成本"]
+        maopi_row = subject_rows.get("合计-毛坯", jianan_row)
+        hunei_row = subject_rows.get("户内装饰工程", jianan_row)
+        jichu_row = subject_rows.get("基础设施工程", jianan_row)
+        maichang_row = subject_rows.get("卖场包装费用", jianan_row)
+        
+        ws.cell(row=jianan_row, column=2).value = f"=B{maopi_row}+B{hunei_row}+B{jichu_row}+B{maichang_row}"
+        ws.cell(row=jianan_row, column=7).value = f"=G{maopi_row}+G{hunei_row}+G{jichu_row}+G{maichang_row}"
+    
     return ws
 
 
