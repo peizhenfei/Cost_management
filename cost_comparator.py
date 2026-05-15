@@ -110,6 +110,27 @@ def _aggregate_density_items(valid_items: List[Dict], subject_code: str) -> Dict
     return result
 
 
+def _is_same_type_family(type_a: str, type_b: str) -> bool:
+    """判断两个业态名称是否属于同一类型族系
+
+    使用clean_type_name去除括号内容后比较基础名称，确保只对比相同业态。
+    例如：
+      "普通多层（5F叠墅）" 与 "普通多层"          -> True  (同一基础类型)
+      "高层"               与 "高层"               -> True  (完全相同)
+      "高层"               与 "洋房"               -> False (不同业态)
+      None                与 "高层"               -> False (无效输入)
+    """
+    if not type_a or not type_b:
+        return False
+
+    from type_matcher import clean_type_name
+
+    clean_a = clean_type_name(type_a)
+    clean_b = clean_type_name(type_b)
+
+    return clean_a == clean_b
+
+
 def compare_summary(project_a: Dict, project_b: Dict, type_matches: List[Tuple[str, str]]) -> Dict[str, Any]:
     """生成成本对比总表数据"""
     
@@ -323,7 +344,10 @@ def compare_fixed_costs(project_a: Dict, project_b: Dict, type_matches: List[Tup
         # 如果双方都没有有效的业态类型，跳过
         if not type_a and not type_b:
             continue
-        
+        # 如果任一项目没有对应的业态类型，跳过对比
+        if not type_a or not type_b:
+            continue
+
         a_keys = list(project_a["测算明细"]["业态明细"].keys())
         b_keys = list(project_b["测算明细"]["业态明细"].keys())
 
@@ -332,6 +356,11 @@ def compare_fixed_costs(project_a: Dict, project_b: Dict, type_matches: List[Tup
 
         a_detail = project_a["测算明细"]["业态明细"].get(matched_key_a, {}) if matched_key_a else {}
         b_detail = project_b["测算明细"]["业态明细"].get(matched_key_b, {}) if matched_key_b else {}
+
+        # 如果匹配后的key不属于同一类型族系，跳过对比
+        # 例如：find_matching_type_key可能将"高层"模糊匹配到"小高层"
+        if not _is_same_type_family(matched_key_a, matched_key_b):
+            continue
 
         # 如果双方都没有有效数据，跳过（与汇总表保持一致）
         if not a_detail and not b_detail:
@@ -558,6 +587,11 @@ def compare_elastic_costs(project_a: Dict, project_b: Dict, type_matches: List[T
 
         a_detail = project_a["测算明细"]["业态明细"].get(matched_key_a, {}) if matched_key_a else {}
         b_detail = project_b["测算明细"]["业态明细"].get(matched_key_b, {}) if matched_key_b else {}
+
+        # 如果匹配后的key不属于同一类型族系，跳过对比
+        # 例如：find_matching_type_key可能将"高层"模糊匹配到"小高层"
+        if not _is_same_type_family(matched_key_a, matched_key_b):
+            continue
 
         # 如果双方都没有有效数据，跳过（与汇总表保持一致）
         if not a_detail and not b_detail:
